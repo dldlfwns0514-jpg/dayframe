@@ -1,0 +1,107 @@
+openapi: 3.1.0
+info:
+  title: Dayframe Schedule API
+  version: 1.0.0
+  description: Read and manage the user's Dayframe schedule. Use the user's timezone (Asia/Seoul) when interpreting dates.
+servers:
+  - url: https://YOUR_PROJECT_REF.supabase.co/functions/v1/dayframe-gpt
+security:
+  - DayframeKey: []
+paths:
+  /tasks:
+    get:
+      operationId: listTasks
+      summary: List schedule items
+      description: Return tasks. Optionally filter by date in YYYY-MM-DD format.
+      parameters:
+        - name: date
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Tasks returned
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tasks:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Task"
+    post:
+      operationId: createTask
+      summary: Add a schedule item
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, task_date]
+              properties:
+                title: {type: string, maxLength: 200}
+                task_date: {type: string, format: date}
+                start_time: {type: [string, "null"], description: "HH:MM"}
+                end_time: {type: [string, "null"], description: "HH:MM"}
+                category: {type: string, enum: [공부, 시험, 수행평가, 동아리, 개인, 기타]}
+                priority: {type: string, enum: [낮음, 보통, 높음]}
+                memo: {type: string, maxLength: 2000}
+      responses:
+        "201":
+          description: Task created
+  /tasks/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    patch:
+      operationId: updateTask
+      summary: Update a schedule item
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: {type: string, maxLength: 200}
+                task_date: {type: string, format: date}
+                start_time: {type: [string, "null"]}
+                end_time: {type: [string, "null"]}
+                category: {type: string, enum: [공부, 시험, 수행평가, 동아리, 개인, 기타]}
+                priority: {type: string, enum: [낮음, 보통, 높음]}
+                memo: {type: string, maxLength: 2000}
+                completed: {type: boolean}
+      responses:
+        "200":
+          description: Task updated
+    delete:
+      operationId: deleteTask
+      summary: Delete a schedule item
+      responses:
+        "200":
+          description: Task deleted
+components:
+  securitySchemes:
+    DayframeKey:
+      type: apiKey
+      in: header
+      name: x-api-key
+  schemas:
+    Task:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        title: {type: string}
+        task_date: {type: string, format: date}
+        start_time: {type: [string, "null"]}
+        end_time: {type: [string, "null"]}
+        category: {type: string}
+        priority: {type: string}
+        memo: {type: string}
+        completed: {type: boolean}
