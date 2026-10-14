@@ -1,1 +1,124 @@
-
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dayframe — 나의 일정</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{font-family:system-ui,-apple-system,sans-serif;color:#20231f;background:#f6f6f1}
+*{box-sizing:border-box}body{margin:0}header{padding:22px max(18px,calc((100% - 900px)/2));background:#fff;border-bottom:1px solid #e8e8df}
+h1{margin:0;font-size:26px;letter-spacing:-.8px}.sub{color:#777;font-size:13px;margin-top:4px}
+main{max-width:900px;margin:auto;padding:18px;display:grid;gap:16px}
+.panel{background:white;border:1px solid #e6e6dd;border-radius:18px;padding:17px}
+h2{font-size:17px;margin:0 0 12px}
+label{font-size:13px;color:#555;display:block;margin:8px 0 5px}
+input,select,textarea,button{font:inherit}input,select,textarea{width:100%;padding:11px;border:1px solid #ddd;border-radius:10px;background:#fff}
+textarea{min-height:65px;resize:vertical}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+button{border:0;border-radius:10px;padding:11px 14px;background:#252a25;color:white;cursor:pointer}
+button.secondary{background:#eee;color:#222}button.danger{background:#9f3434}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.task{border:1px solid #eee;border-radius:12px;padding:12px;margin:8px 0;display:flex;gap:10px;align-items:flex-start}
+.task .body{flex:1;min-width:0}.task small{display:block;color:#777;margin-top:4px}.done{text-decoration:line-through;color:#888}
+.status{font-size:13px;color:#666;margin:8px 0}.hidden{display:none!important}
+.chatlog{height:220px;overflow:auto;background:#fafaf7;border:1px solid #eee;border-radius:12px;padding:10px;margin:10px 0}
+.msg{white-space:pre-wrap;padding:9px 11px;border-radius:12px;margin:6px 0;max-width:95%;font-size:14px}
+.user{background:#e9eee7;margin-left:auto}.assistant{background:#fff;border:1px solid #eee}
+@media(max-width:560px){.grid{grid-template-columns:1fr}main{padding:12px}header{padding:18px}}
+</style>
+</head>
+<body>
+<header><h1>Dayframe</h1><div class="sub">나의 일정 · 차분하게 하루를 정리하기</div></header>
+<main>
+<section class="panel">
+<h2>계정</h2>
+<div id="auth">
+<label>이메일</label><input id="email" type="email" autocomplete="email" placeholder="이메일 주소">
+<label>비밀번호</label><input id="password" type="password" autocomplete="current-password" placeholder="비밀번호">
+<div class="actions"><button id="signup">가입하기</button><button class="secondary" id="login">로그인</button></div>
+</div>
+<div id="signed" class="hidden"><div id="who" class="status"></div><button class="secondary" id="logout">로그아웃</button></div>
+<div id="status" class="status">Supabase 연결 설정이 필요합니다.</div>
+</section>
+<section id="app" class="hidden">
+<div class="panel">
+<h2 id="formtitle">일정 추가</h2>
+<input id="taskid" type="hidden">
+<label>일정 이름</label><input id="title" maxlength="200" placeholder="예: 화학 오답 정리">
+<div class="grid">
+<div><label>날짜</label><input id="date" type="date"></div>
+<div><label>분류</label><select id="category"><option>공부</option><option>시험</option><option>수행평가</option><option>동아리</option><option>개인</option><option selected>기타</option></select></div>
+<div><label>시작 시간</label><input id="start" type="time"></div>
+<div><label>종료 시간</label><input id="end" type="time"></div>
+<div><label>중요도</label><select id="priority"><option>낮음</option><option selected>보통</option><option>높음</option></select></div>
+</div>
+<label>메모</label><textarea id="memo" placeholder="필요한 내용을 적어 둬"></textarea>
+<div class="actions"><button id="save">일정 저장</button><button class="secondary" id="cancel">초기화</button></div>
+</div>
+<div class="panel"><h2>일정 목록</h2><label>날짜 선택</label><input id="filterdate" type="date"><div id="tasks"></div></div>
+<div class="panel">
+<h2>AI 일정 비서</h2>
+<div class="status">예: “내일 오후 7시에 수학 공부 1시간 추가해 줘.” AI 서버 함수 설정을 마친 뒤 사용할 수 있어.</div>
+<div id="chatlog" class="chatlog"><div class="msg assistant">안녕! 연결 후에는 자연어로 일정을 조회하고 변경할 수 있어.</div></div>
+<textarea id="chatinput" placeholder="AI에게 요청할 내용을 입력해"></textarea>
+<div class="actions"><button id="send">AI에게 보내기</button></div>
+</div>
+</section>
+</main>
+<script>
+const SUPABASE_URL = "https://eiexfoeibwychjbnqzeh.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_u1NlJSkB5bZTv6qtn8YsCQ_LB6canYD";
+const sbReady = !SUPABASE_URL.includes("_HERE") && !SUPABASE_PUBLISHABLE_KEY.includes("_HERE");
+const sb = sbReady ? window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY) : null;
+const $ = id => document.getElementById(id);
+const today = new Date(); const localDate = new Date(today.getTime()-today.getTimezoneOffset()*60000).toISOString().slice(0,10);
+$("date").value=localDate; $("filterdate").value=localDate;
+function status(s){$("status").textContent=s}
+function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+function chat(role,txt){let el=document.createElement("div");el.className="msg "+role;el.textContent=txt;$("chatlog").appendChild(el);$("chatlog").scrollTop=$("chatlog").scrollHeight}
+async function refreshSession(){
+ if(!sb){status("아직 Supabase 주소와 publishable key가 설정되지 않았습니다.");return}
+ const {data:{session}}=await sb.auth.getSession();
+ $("auth").classList.toggle("hidden",!!session);$("signed").classList.toggle("hidden",!session);$("app").classList.toggle("hidden",!session);
+ if(session){$("who").textContent=session.user.email+" 로그인됨";await loadTasks()} else status("이메일로 가입하거나 로그인하세요.");
+}
+async function signup(){if(!sb)return status("먼저 Supabase 연결 값을 설정해야 합니다.");let {error}=await sb.auth.signUp({email:$("email").value,password:$("password").value});status(error?error.message:"가입 요청 완료. 이메일 확인이 필요할 수 있습니다.")}
+async function login(){if(!sb)return status("먼저 Supabase 연결 값을 설정해야 합니다.");let {error}=await sb.auth.signInWithPassword({email:$("email").value,password:$("password").value});status(error?error.message:"로그인 완료");await refreshSession()}
+$("signup").onclick=signup;$("login").onclick=login;
+$("logout").onclick=async()=>{await sb.auth.signOut();await refreshSession()};
+function clearForm(){$("taskid").value="";$("formtitle").textContent="일정 추가";$("title").value="";$("date").value=localDate;$("start").value="";$("end").value="";$("category").value="기타";$("priority").value="보통";$("memo").value=""}
+$("cancel").onclick=clearForm;
+$("save").onclick=async()=>{
+ if(!sb)return;const {data:{user}}=await sb.auth.getUser();if(!user)return;
+ const title=$("title").value.trim();if(!title)return status("일정 이름을 입력하세요.");
+ const row={user_id:user.id,title,task_date:$("date").value,start_time:$("start").value||null,end_time:$("end").value||null,category:$("category").value,priority:$("priority").value,memo:$("memo").value};
+ let q=$("taskid").value?sb.from("tasks").update(row).eq("id",$("taskid").value):sb.from("tasks").insert(row);
+ const {error}=await q;if(error)return status(error.message);status("일정을 저장했습니다.");clearForm();await loadTasks()
+};
+$("filterdate").onchange=loadTasks;
+async function loadTasks(){
+ if(!sb)return;const {data,error}=await sb.from("tasks").select("*").eq("task_date",$("filterdate").value).order("start_time",{ascending:true,nullsFirst:false});
+ if(error){status(error.message);return}
+ $("tasks").innerHTML="";
+ if(!data.length){$("tasks").textContent="이 날짜에는 등록된 일정이 없습니다.";return}
+ data.forEach(t=>{
+ const el=document.createElement("div");el.className="task";
+ const time=[t.start_time,t.end_time].filter(Boolean).map(x=>x.slice(0,5)).join("–");
+ el.innerHTML=`<input type="checkbox" style="width:auto;margin-top:5px" ${t.completed?"checked":""} aria-label="완료"><div class="body"><strong class="${t.completed?"done":""}">${esc(t.title)}</strong><small>${esc(time||"시간 미정")} · ${esc(t.category)} · 중요도 ${esc(t.priority)}</small>${t.memo?`<small>${esc(t.memo)}</small>`:""}<div class="actions"><button class="secondary edit">수정</button><button class="danger del">삭제</button></div></div>`;
+ el.querySelector('input').onchange=async e=>{await sb.from("tasks").update({completed:e.target.checked}).eq("id",t.id);loadTasks()};
+ el.querySelector('.edit').onclick=()=>{$("taskid").value=t.id;$("formtitle").textContent="일정 수정";$("title").value=t.title;$("date").value=t.task_date;$("start").value=t.start_time||"";$("end").value=t.end_time||"";$("category").value=t.category;$("priority").value=t.priority;$("memo").value=t.memo||"";window.scrollTo({top:0,behavior:"smooth"})};
+ el.querySelector('.del').onclick=async()=>{if(confirm("이 일정을 삭제할까요?")){const {error}=await sb.from("tasks").delete().eq("id",t.id);if(error)status(error.message);loadTasks()}};
+ $("tasks").appendChild(el)
+ })
+}
+$("send").onclick=async()=>{
+ const text=$("chatinput").value.trim();if(!text)return;if(!sb)return status("먼저 Supabase 연결 값을 설정해야 합니다.");
+ const {data:{session}}=await sb.auth.getSession();if(!session)return status("로그인이 필요합니다.");
+ chat("user",text);$("chatinput").value="";$("send").disabled=true;
+ try{
+ const res=await fetch(SUPABASE_URL+"/functions/v1/dayframe-ai",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+session.access_token,"apikey":SUPABASE_PUBLISHABLE_KEY},body:JSON.stringify({message:text})});
+ const data=await res.json();if(!res.ok)throw new Error(data.error||"AI 요청 실패");chat("assistant",data.reply||"처리했습니다.");await loadTasks()
+ }catch(e){chat("assistant","연결 오류: "+e.message+" — AI 서버 함수 배포와 OPENAI_API_KEY 설정을 확인해 주세요.")}finally{$("send").disabled=false}
+};
+if(sb){sb.auth.onAuthStateChange(()=>refreshSession());refreshSession()}else status("설정 전 미리보기입니다. SETUP_태블릿용.md를 따라 Supabase 값을 입력하세요.");
+</script>
+</body></html>
